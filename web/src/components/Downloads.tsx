@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Download, Loader2, Plus, X } from 'lucide-react'
+import { Download, Loader2, Plus, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,7 +12,15 @@ import { api, type Job } from '@/lib/api'
 // Big imports queue 1000+ jobs; rendering all of them every second isn't worth it.
 const VISIBLE_PENDING = 50
 
-export function Downloads({ jobs }: { jobs: Job[] }) {
+type Props = {
+  jobs: Job[]
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  // Pick the right YouTube Music track by hand for an import that wasn't matched automatically.
+  onFix: (job: Job) => void
+}
+
+export function Downloads({ jobs, open, onOpenChange, onFix }: Props) {
   const [url, setUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -35,7 +43,7 @@ export function Downloads({ jobs }: { jobs: Job[] }) {
   }
 
   return (
-    <Sheet>
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
         <Button variant="outline">
           <Download />
@@ -91,6 +99,12 @@ export function Downloads({ jobs }: { jobs: Job[] }) {
                       <div className="truncate text-xs text-destructive" title={job.error}>
                         {job.error}
                       </div>
+                      {job.search && (
+                        <Button variant="link" size="xs" className="h-auto px-0" onClick={() => onFix(job)}>
+                          <Search />
+                          Найти вручную
+                        </Button>
+                      )}
                     </div>
                     <Button variant="ghost" size="icon-xs" onClick={() => api.dismissJob(job.id)}>
                       <X />

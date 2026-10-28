@@ -1,24 +1,16 @@
 import { Check, Download, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { api, formatTime, type SearchResult } from '@/lib/api'
+import { formatTime, type SearchResult } from '@/lib/api'
 
 type Props = {
   results: SearchResult[]
   loading: boolean
   inLibrary: (id: string) => boolean
   queued: (id: string) => boolean
+  onDownload: (r: SearchResult) => void
 }
 
-export function SearchResults({ results, loading, inLibrary, queued }: Props) {
-  const download = async (r: SearchResult) => {
-    try {
-      await api.download(`https://www.youtube.com/watch?v=${r.id}`)
-    } catch (e) {
-      toast.error((e as Error).message)
-    }
-  }
-
+export function SearchResults({ results, loading, inLibrary, queued, onDownload }: Props) {
   if (loading && results.length === 0) {
     return (
       <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground">
@@ -45,7 +37,7 @@ export function SearchResults({ results, loading, inLibrary, queued }: Props) {
           ) : queued(r.id) ? (
             <Loader2 className="m-1.5 size-4 animate-spin text-muted-foreground" />
           ) : (
-            <Button variant="ghost" size="icon-sm" onClick={() => download(r)}>
+            <Button variant="ghost" size="icon-sm" onClick={() => onDownload(r)}>
               <Download />
             </Button>
           )}
