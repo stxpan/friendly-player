@@ -1,16 +1,10 @@
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import path from 'node:path'
-import readline from 'node:readline'
 import { getTrack, hasSource, insertTrack, MEDIA_DIR } from './db.ts'
+import { queueLoudness } from './loudness.ts'
 import { fetchYandexPlaylist } from './yandex.ts'
-
-// Binary is fetched into node_modules by youtube-dl-exec's postinstall;
-// its typings don't declare the constants module, hence the plain require.
-const { YOUTUBE_DL_PATH } = createRequire(import.meta.url)('youtube-dl-exec/src/constants') as { YOUTUBE_DL_PATH: string }
-const YTDLP = process.env.YTDLP_PATH ?? YOUTUBE_DL_PATH
+import { run } from './ytdlp.ts'
 
 // How far the found YouTube Music track may differ from the imported one, in seconds.
 const DURATION_TOLERANCE = 10
@@ -21,11 +15,13 @@ export type Job = {
   status: 'queued' | 'downloading' | 'error'
   progress: number
   error?: string
-  // Direct YouTube link.
+  // Direct YouTube link, or the video the user picked by hand for an imported track.
   videoId?: string
   // Track imported from another service, looked up on YouTube Music.
   search?: { query: string; title: string; artist: string; durationMs: number; source: string }
 }
+
+export const isDownloading = () => jobs.some((j) => j.status === 'downloading')
 
 const jobs: Job[] = []
 // Bumped on every finished download so the UI knows when to refetch the library.
@@ -42,21 +38,13 @@ export function clearErrors() {
   for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i].status === 'error') jobs.splice(i, 1)
 }
 
-function run(args: string[], onLine?: (line: string) => void) {
-  return new Promise<string>((resolve, reject) => {
-    const proc = spawn(YTDLP, args)
-    let stdout = ''
-    let lastError = ''
-    for (const stream of [proc.stdout, proc.stderr]) {
-      readline.createInterface({ input: stream }).on('line', (line) => {
-        if (stream === proc.stdout) stdout += line + '\n'
-        if (line.startsWith('ERROR:')) lastError = line.slice(7)
-        onLine?.(line)
-      })
-    }
-    proc.on('error', (e) => reject(new Error(`Не удалось запустить yt-dlp: ${e.message}`)))
-    proc.on('close', (code) => (code === 0 ? resolve(stdout) : reject(new Error(lastError || `yt-dlp exited with ${code}`))))
-  })
+// The user picked the right video for a failed import; retry with it, keeping the original metadata.
+export function resolveJob(id: string, videoId: string) {
+  const job = jobs.find((j) => j.id === id && j.status === 'error')
+  if (!job) return false
+  Object.assign(job, { videoId, status: 'queued', progress: 0, error: undefined })
+  processQueue()
+  return true
 }
 
 const isQueued = (match: (j: Job) => boolean) => jobs.some((j) => j.status !== 'error' && match(j))
@@ -130,13 +118,13 @@ async function worker() {
 }
 
 function target(job: Job) {
-  if (!job.search) return ['--no-playlist', `https://www.youtube.com/watch?v=${job.videoId}`]
+  if (job.videoId) return ['--no-playlist', `https://www.youtube.com/watch?v=${job.videoId}`]
   // Top hit in YouTube Music's "Songs" section, rejected unless its length matches the original.
-  const d = job.search.durationMs / 1000
+  const d = job.search!.durationMs / 1000
   return [
     '--playlist-items', '1',
     '--match-filter', `duration >= ${Math.floor(d - DURATION_TOLERANCE)} & duration <= ${Math.ceil(d + DURATION_TOLERANCE)}`,
-    `https://music.youtube.com/search?q=${encodeURIComponent(job.search.query)}#songs`,
+    `https://music.youtube.com/search?q=${encodeURIComponent(job.search!.query)}#songs`,
   ]
 }
 
@@ -161,16 +149,18 @@ async function download(job: Job) {
   if (!json) throw new Error('Не найдено на YouTube Music')
   const meta = JSON.parse(json)
   const thumb = `${meta.id}.jpg`
+  const file = `${meta.id}.${meta.ext}`
   insertTrack(
     {
       id: meta.id,
       title: job.search?.title ?? meta.title,
       artist: job.search?.artist ?? meta.artist ?? meta.uploader ?? null,
       duration: meta.duration ?? null,
-      file: `${meta.id}.${meta.ext}`,
+      file,
       thumb: existsSync(path.join(MEDIA_DIR, thumb)) ? thumb : null,
       addedAt: Date.now(),
     },
     job.search?.source,
   )
+  queueLoudness(meta.id, file)
 }
