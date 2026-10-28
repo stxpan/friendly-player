@@ -14,6 +14,15 @@ export type Job = {
   status: 'queued' | 'downloading' | 'error'
   progress: number
   error?: string
+  videoId?: string
+}
+
+export type SearchResult = {
+  id: string
+  title: string
+  artist: string
+  duration: number | null
+  thumb: string | null
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -24,6 +33,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   tracks: () => request<Track[]>('/api/tracks'),
+  search: (q: string, signal: AbortSignal) =>
+    request<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`, { signal }),
   deleteTrack: (id: string) => request<void>(`/api/tracks/${id}`, { method: 'DELETE' }),
   queue: () => request<{ jobs: Job[]; completed: number }>('/api/downloads'),
   download: (url: string) =>

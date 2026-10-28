@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import { Music, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react'
+import { Music, Pause, Play, Shuffle, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { formatTime, type Track } from '@/lib/api'
 import { load, save } from '@/lib/storage'
+import { cn } from '@/lib/utils'
 
 type Props = {
   track: Track | null
+  shuffle: boolean
+  onToggleShuffle: () => void
   onNext: () => void
   onPrev: () => void
 }
 
-export function Player({ track, onNext, onPrev }: Props) {
+export function Player({ track, shuffle, onToggleShuffle, onNext, onPrev }: Props) {
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
@@ -82,6 +85,16 @@ export function Player({ track, onNext, onPrev }: Props) {
 
       <div className="flex flex-1 flex-col items-center gap-1">
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleShuffle}
+            aria-pressed={shuffle}
+            title={shuffle ? 'Перемешивание включено' : 'Перемешивание выключено'}
+            className={cn(shuffle ? 'text-primary' : 'text-muted-foreground')}
+          >
+            <Shuffle />
+          </Button>
           <Button variant="ghost" size="icon" onClick={prev} disabled={!track}>
             <SkipBack />
           </Button>
@@ -91,6 +104,8 @@ export function Player({ track, onNext, onPrev }: Props) {
           <Button variant="ghost" size="icon" onClick={onNext} disabled={!track}>
             <SkipForward />
           </Button>
+          {/* Mirrors the shuffle button so play/pause stays centered. */}
+          <div className="size-8" />
         </div>
         <div className="flex w-full max-w-xl items-center gap-2 text-xs tabular-nums text-muted-foreground">
           <span className="w-10 text-right">{formatTime(seek ?? time)}</span>

@@ -5,6 +5,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { DATA_DIR, deleteTrack, getTrack, listTracks, MEDIA_DIR } from './db.ts'
 import { clearErrors, dismissJob, enqueue, getQueue } from './downloader.ts'
+import { searchMusic } from './search.ts'
 
 const app = new Hono()
 
@@ -16,6 +17,16 @@ app.delete('/api/tracks/:id', async (c) => {
   deleteTrack(track.id)
   for (const f of [track.file, track.thumb]) if (f) await rm(path.join(MEDIA_DIR, f), { force: true })
   return c.body(null, 204)
+})
+
+app.get('/api/search', async (c) => {
+  const q = c.req.query('q')?.trim()
+  if (!q) return c.json([])
+  try {
+    return c.json(await searchMusic(q))
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
+  }
 })
 
 app.get('/api/downloads', (c) => c.json(getQueue()))
