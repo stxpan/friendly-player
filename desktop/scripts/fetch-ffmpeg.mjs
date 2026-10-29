@@ -19,8 +19,9 @@ writeFileSync(zip, Buffer.from(await res.arrayBuffer()))
 const tmp = path.join(vendor, 'ffmpeg-tmp')
 rmSync(tmp, { recursive: true, force: true })
 mkdirSync(tmp)
-// Windows 10+ ships bsdtar, which reads zip.
-execFileSync('tar', ['-xf', zip, '-C', tmp])
+// Windows 10+ ships bsdtar, which reads zip. By full path: Git Bash's GNU tar would come first on
+// PATH and take "D:" for a remote host.
+execFileSync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', zip, '-C', tmp])
 const top = path.join(tmp, readdirSync(tmp)[0])
 mkdirSync(dest, { recursive: true })
 for (const f of readdirSync(path.join(top, 'bin')))

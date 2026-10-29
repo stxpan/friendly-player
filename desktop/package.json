@@ -1,19 +1,23 @@
 {
   "name": "desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "productName": "Friendly Player",
   "description": "Friendly Player — desktop app",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
     "build": "node scripts/build.mjs",
     "fetch-ffmpeg": "node scripts/fetch-ffmpeg.mjs",
-    "dist": "node scripts/build.mjs && electron-builder"
+    "dist": "node scripts/build.mjs && electron-builder --publish never",
+    "release": "node scripts/build.mjs && electron-builder --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.10"
   },
   "devDependencies": {
     "electron": "44.7.2",
     "electron-builder": "26.17.0",
     "esbuild": "0.28.2"
-  },
-  "productName": "Friendly Player"
+  }
 }

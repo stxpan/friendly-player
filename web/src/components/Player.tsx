@@ -70,7 +70,7 @@ export function Player({
   const [duration, setDuration] = useState(0)
   // Slider position while the user drags it, so timeupdate doesn't fight the thumb.
   const [seek, setSeek] = useState<number | null>(null)
-  const [volume, setVolume] = useState(() => load('player.volume', 1))
+  const [volume, setVolume] = useState(() => load('player.volume', 0.5))
   const [muted, setMuted] = useState(() => load('player.muted', false))
   // Position saved before reload; applied once, when that same track loads again.
   const resumeAt = useRef(load<{ id: string; time: number } | null>('player.position', null))

@@ -1,5 +1,6 @@
 // Desktop shell: starts the player's server in a utility process and shows its UI in a window.
-const { app, BrowserWindow, Menu, dialog, shell, utilityProcess } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, utilityProcess } = require('electron')
+const { autoUpdater } = require('electron-updater')
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -7,12 +8,16 @@ const path = require('node:path')
 const PORT = 47615
 const ORIGIN = `http://127.0.0.1:${PORT}`
 const STARTUP_TIMEOUT_MS = 30_000
+// The app may stay open for days; look for a new release now and then, not only at launch.
+const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000
 
 // Packaged: next to app.asar in resources/; unpackaged (`pnpm start`): the local build/ folder.
 const resource = (...p) => (app.isPackaged ? path.join(process.resourcesPath, ...p) : path.join(__dirname, 'build', ...p))
 
 let server
 let win
+// Version of an update that has been downloaded and waits to be installed.
+let updateReady = null
 
 // yt-dlp updates itself in place, and the install folder may not be writable (installed for all
 // users), so it runs from the user's profile: copied there on first launch and after app updates.
@@ -74,6 +79,27 @@ function startServer() {
   })
 }
 
+// Updates come from GitHub Releases (see "publish" in electron-builder.yml): downloaded in the
+// background, installed when the user restarts from the UI's prompt or simply quits the app.
+function startUpdates() {
+  if (!app.isPackaged) return
+  const log = fs.createWriteStream(path.join(app.getPath('userData'), 'updater.log'), { flags: 'w' })
+  const write = (level) => (msg) => log.write(`${new Date().toISOString()} ${level} ${msg}
+`)
+  autoUpdater.logger = { info: write('info'), warn: write('warn'), error: write('error'), debug: () => {} }
+  autoUpdater.on('update-downloaded', ({ version }) => {
+    updateReady = version
+    win?.webContents.send('update-ready', version)
+  })
+  // No network or no release yet: try again at the next check.
+  const check = () => autoUpdater.checkForUpdates().catch(() => {})
+  check()
+  setInterval(check, UPDATE_CHECK_MS)
+}
+
+ipcMain.handle('update-ready-version', () => updateReady)
+ipcMain.on('install-update', () => autoUpdater.quitAndInstall())
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -83,6 +109,7 @@ function createWindow() {
     title: 'Friendly Player',
     backgroundColor: '#0a0a0a',
     show: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   })
   // Links (e.g. "copy link" targets, GitHub) open in the browser, not in the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -114,6 +141,7 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     createWindow()
+    startUpdates()
   })
 
   app.on('window-all-closed', () => app.quit())

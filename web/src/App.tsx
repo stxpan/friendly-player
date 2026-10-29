@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { arrayMove } from '@dnd-kit/sortable'
 import { toast } from 'sonner'
+import { AppUpdate } from '@/components/AppUpdate'
 import { Downloads } from '@/components/Downloads'
 import { Duplicates } from '@/components/Duplicates'
 import { LibraryList } from '@/components/LibraryList'
@@ -353,6 +354,7 @@ export default function App() {
       />
       {actions.dialogs}
       <YtdlpUpdate />
+      <AppUpdate />
       <Toaster />
     </div>
   )
