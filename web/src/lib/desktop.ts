@@ -15,8 +15,9 @@ declare global {
       installUpdate: () => void
       version: () => Promise<string>
       checkForUpdates: () => Promise<UpdateCheck>
-      // System-wide track hotkeys (Ctrl+Shift+A / Ctrl+Shift+D), pressed while another app is focused.
-      onTrackHotkey: (callback: (action: 'prev' | 'next') => void) => () => void
+      // Player commands from outside the page: the system-wide hotkeys (Ctrl+Shift+A / Ctrl+Shift+D)
+      // and the tray menu.
+      onTrackHotkey: (callback: (action: 'prev' | 'next' | 'toggle') => void) => () => void
     }
   }
 }

@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('desktop', {
   installUpdate: () => ipcRenderer.send('install-update'),
   version: () => ipcRenderer.invoke('app-version'),
   checkForUpdates: () => ipcRenderer.invoke('check-updates'),
-  // System-wide track hotkeys; returns an unsubscribe function.
+  // Player commands from the system-wide hotkeys and the tray menu; returns an unsubscribe function.
   onTrackHotkey(callback) {
     const listener = (_e, action) => callback(action)
     ipcRenderer.on('track-hotkey', listener)

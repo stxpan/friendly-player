@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "productName": "Friendly Player",
   "description": "Friendly Player — desktop app",
   "main": "main.cjs",

@@ -1,5 +1,17 @@
 // Desktop shell: starts the player's server in a utility process and shows its UI in a window.
-const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, session, shell, utilityProcess } = require('electron')
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  nativeImage,
+  session,
+  shell,
+  utilityProcess,
+} = require('electron')
 const { autoUpdater } = require('electron-updater')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -16,6 +28,8 @@ const resource = (...p) => (app.isPackaged ? path.join(process.resourcesPath, ..
 
 let server
 let win
+// Shown while the window is minimized (it then leaves the taskbar).
+let tray = null
 // Version of an update that has been downloaded and waits to be installed.
 let updateReady = null
 
@@ -119,10 +133,52 @@ ipcMain.handle('check-updates', async () => {
 // with that app; the hotkey works only inside the player then.
 const TRACK_HOTKEYS = { 'CommandOrControl+Shift+A': 'prev', 'CommandOrControl+Shift+D': 'next' }
 
+// Commands for the player in the UI: 'prev', 'next' or 'toggle' (play/pause).
+const sendToPlayer = (action) => win?.webContents.send('track-hotkey', action)
+
 function registerHotkeys() {
   for (const [accelerator, action] of Object.entries(TRACK_HOTKEYS)) {
-    globalShortcut.register(accelerator, () => win?.webContents.send('track-hotkey', action))
+    globalShortcut.register(accelerator, () => sendToPlayer(action))
   }
+}
+
+// The app icon at the sizes Windows asks for at 100–200% display scaling, so it isn't blurry.
+function trayIcon() {
+  const source = nativeImage.createFromPath(path.join(__dirname, 'icon.png'))
+  const icon = nativeImage.createEmpty()
+  for (const [scaleFactor, size] of [[1, 16], [1.25, 20], [1.5, 24], [2, 32]]) {
+    const buffer = source.resize({ width: size, height: size, quality: 'best' }).toPNG()
+    icon.addRepresentation({ scaleFactor, width: size, height: size, buffer })
+  }
+  return icon
+}
+
+function showTray() {
+  if (tray) return
+  tray = new Tray(trayIcon())
+  tray.setToolTip('Friendly Player')
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Открыть', click: showWindow },
+      { type: 'separator' },
+      { label: 'Пауза / продолжить', click: () => sendToPlayer('toggle') },
+      { label: 'Предыдущий трек', click: () => sendToPlayer('prev') },
+      { label: 'Следующий трек', click: () => sendToPlayer('next') },
+      { type: 'separator' },
+      { label: 'Выход', click: () => app.quit() },
+    ]),
+  )
+  tray.on('click', showWindow)
+}
+
+// Back from the tray (or from a second launch): the window returns, the tray icon goes away.
+function showWindow() {
+  if (!win) return
+  win.show()
+  if (win.isMinimized()) win.restore()
+  win.focus()
+  tray?.destroy()
+  tray = null
 }
 
 // Versions up to 0.2.1 served the UI without cache headers, and the window kept showing the
@@ -157,16 +213,18 @@ function createWindow() {
     return { action: 'deny' }
   })
   win.once('ready-to-show', () => win.show())
+  // Minimizing sends the player to the tray; the music keeps playing.
+  win.on('minimize', () => {
+    win.hide()
+    showTray()
+  })
   win.loadURL(ORIGIN)
 }
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (win?.isMinimized()) win.restore()
-    win?.focus()
-  })
+  app.on('second-instance', showWindow)
 
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null)

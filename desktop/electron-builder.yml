@@ -6,6 +6,8 @@ directories:
 files:
   - main.cjs
   - preload.cjs
+  # The tray icon.
+  - icon.png
 # Releases on GitHub: the installer, latest.yml (the installed app reads it to find new versions)
 # and the .blockmap (lets it download only what changed).
 publish:
