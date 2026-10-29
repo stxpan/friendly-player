@@ -10,7 +10,7 @@
     "build": "node scripts/build.mjs",
     "fetch-ffmpeg": "node scripts/fetch-ffmpeg.mjs",
     "dist": "node scripts/build.mjs && electron-builder --publish never",
-    "release": "node scripts/build.mjs && electron-builder --publish always"
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "electron-updater": "6.8.10"
