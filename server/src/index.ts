@@ -4,23 +4,40 @@ import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import {
+  addOnline,
   addToPlaylist,
   createPlaylist,
-  DATA_DIR,
+  DEFAULT_MEDIA_DIR,
   deletePlaylist,
   deleteTrack,
   getTrack,
   listPlaylists,
   listTracks,
   MEDIA_DIR,
+  recordPlay,
   removeFromPlaylist,
   renamePlaylist,
   renameTrack,
+  saveOrder,
 } from './db.ts'
-import { clearErrors, dismissJob, enqueue, getQueue, isDownloading, resolveJob } from './downloader.ts'
+import {
+  clearErrors,
+  dismissJob,
+  enqueue,
+  enqueueDownloads,
+  getConcurrency,
+  getQueue,
+  isDownloading,
+  resolveJob,
+  setConcurrency,
+  type ImportTarget,
+} from './downloader.ts'
 import { backfillLoudness } from './loudness.ts'
-import { lyricsFor } from './lyrics.ts'
-import { searchMusic } from './search.ts'
+import { lookup, lyricsFor, requestSync } from './lyrics.ts'
+import { radio, searchFirst, searchMore } from './search.ts'
+import { stats } from './stats.ts'
+import { cleanup, cleanupPreview, moveMedia, usage } from './storage.ts'
+import { streamUrl } from './stream.ts'
 import { update, versionInfo } from './ytdlp.ts'
 
 const app = new Hono()
@@ -40,8 +57,25 @@ app.delete('/api/tracks/:id', async (c) => {
   const track = getTrack(c.req.param('id'))
   if (!track) return c.notFound()
   deleteTrack(track.id)
-  for (const f of [track.file, track.thumb]) if (f) await rm(path.join(MEDIA_DIR, f), { force: true })
+  // Online tracks have no file and a remote cover; only local files are removed.
+  for (const f of [track.file, track.thumb]) {
+    if (f && !f.startsWith('http')) await rm(path.join(MEDIA_DIR, f), { force: true })
+  }
   return c.body(null, 204)
+})
+
+// Add a YouTube Music result to the library without downloading it.
+app.post('/api/tracks', async (c) => {
+  const t = await c.req.json<{ id: string; title: string; artist: string; duration: number | null; thumb: string | null }>()
+  if (!/^[\w-]{11}$/.test(t.id)) return c.json({ error: 'Неверный id видео' }, 400)
+  addOnline({ ...t, artist: t.artist || null })
+  return c.body(null, 204)
+})
+
+// Download the files of library tracks that are online-only.
+app.post('/api/tracks/download', async (c) => {
+  const { ids } = await c.req.json<{ ids: string[] }>()
+  return c.json({ queued: enqueueDownloads(ids) })
 })
 
 app.get('/api/tracks/:id/lyrics', async (c) => {
@@ -49,7 +83,62 @@ app.get('/api/tracks/:id/lyrics', async (c) => {
   return lyrics ? c.json(lyrics) : c.notFound()
 })
 
+// Prefetch: time the next track's lyrics in the background before it starts playing.
+app.post('/api/tracks/:id/lyrics/prepare', (c) => {
+  if (!getTrack(c.req.param('id'))) return c.notFound()
+  requestSync(c.req.param('id'), false)
+  return c.body(null, 202)
+})
+
+// Lyrics for a track that isn't in the library (streamed from YouTube Music); not cached.
+app.get('/api/lyrics', async (c) => {
+  const { id, title, artist, duration } = c.req.query()
+  if (!id || !title) return c.json({ error: 'Нужны id и название' }, 400)
+  return c.json(await lookup({ videoId: id, title, artist: artist ?? '', duration: duration ? Number(duration) : null }))
+})
+
+// Plays a YouTube Music track without downloading it: the <audio> element follows the redirect
+// straight to YouTube's audio stream, including the Range requests used for seeking.
+app.get('/api/stream/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!/^[\w-]{11}$/.test(id)) return c.json({ error: 'Неверный id видео' }, 400)
+  try {
+    return c.redirect(await streamUrl(id), 302)
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
+  }
+})
+
+// Warm the stream URL cache for the track that's next, so it starts without a yt-dlp wait.
+app.post('/api/stream/:id/prepare', (c) => {
+  const id = c.req.param('id')
+  if (/^[\w-]{11}$/.test(id)) streamUrl(id).catch(() => {})
+  return c.body(null, 202)
+})
+
+// The player reports each listening session when the track changes or ends.
+app.post('/api/plays', async (c) => {
+  const { trackId, playedAt, listened, completed } = await c.req.json<{
+    trackId: string
+    playedAt: number
+    listened: number
+    completed: boolean
+  }>()
+  if (!getTrack(trackId) || !(listened > 0)) return c.body(null, 204)
+  recordPlay(trackId, playedAt, listened, completed)
+  return c.body(null, 204)
+})
+
+app.get('/api/stats', (c) => c.json(stats(Number(c.req.query('days') ?? 30))))
+
 app.get('/api/playlists', (c) => c.json(listPlaylists()))
+
+// The user's own order after dragging: the whole list, of the library (playlistId null) or a playlist.
+app.put('/api/order', async (c) => {
+  const { playlistId, ids } = await c.req.json<{ playlistId: number | null; ids: string[] }>()
+  saveOrder(playlistId, ids)
+  return c.body(null, 204)
+})
 
 app.post('/api/playlists', async (c) => {
   const { name } = await c.req.json<{ name: string }>()
@@ -81,9 +170,27 @@ app.delete('/api/playlists/:id/tracks/:trackId', (c) => {
 
 app.get('/api/search', async (c) => {
   const q = c.req.query('q')?.trim()
-  if (!q) return c.json([])
+  if (!q) return c.json({ results: [], more: null })
   try {
-    return c.json(await searchMusic(q))
+    return c.json(await searchFirst(q))
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
+  }
+})
+
+// The next page of a search, by the `more` token the previous page came with.
+app.get('/api/search/more', async (c) => {
+  try {
+    const page = await searchMore(c.req.query('token') ?? '')
+    return page ? c.json(page) : c.json({ results: [], more: null })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
+  }
+})
+
+app.get('/api/radio/:id', async (c) => {
+  try {
+    return c.json(await radio(c.req.param('id')))
   } catch (e) {
     return c.json({ error: (e as Error).message }, 502)
   }
@@ -92,9 +199,10 @@ app.get('/api/search', async (c) => {
 app.get('/api/downloads', (c) => c.json(getQueue()))
 
 app.post('/api/downloads', async (c) => {
-  const { url } = await c.req.json<{ url: string }>()
+  // `playlist`: an existing playlist id, 'new' for one named after the source, or null for the library only.
+  const { url, playlist } = await c.req.json<{ url: string; playlist?: ImportTarget }>()
   try {
-    return c.json(await enqueue(url))
+    return c.json(await enqueue(url, playlist ?? null))
   } catch (e) {
     return c.json({ error: (e as Error).message }, 400)
   }
@@ -123,15 +231,41 @@ app.post('/api/ytdlp/update', async (c) => {
   return c.json(await update())
 })
 
-app.use(
-  '/media/*',
+// --- settings & storage ---
+
+app.get('/api/settings', (c) => c.json({ concurrency: getConcurrency(), mediaDir: MEDIA_DIR, defaultMediaDir: DEFAULT_MEDIA_DIR }))
+
+app.put('/api/settings', async (c) => {
+  const body = await c.req.json<{ concurrency?: number; mediaDir?: string }>()
+  if (body.concurrency !== undefined) setConcurrency(body.concurrency)
+  let moved
+  if (body.mediaDir !== undefined) {
+    try {
+      moved = await moveMedia(body.mediaDir)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  }
+  return c.json({ concurrency: getConcurrency(), mediaDir: MEDIA_DIR, moved })
+})
+
+app.get('/api/storage', async (c) => c.json(await usage()))
+app.get('/api/storage/cleanup', async (c) => c.json(await cleanupPreview(Number(c.req.query('days') ?? 90))))
+app.post('/api/storage/cleanup', async (c) => {
+  const { days } = await c.req.json<{ days: number }>()
+  return c.json(await cleanup(days))
+})
+
+// The music folder can be moved in settings, so the static handler is built per request.
+app.use('/media/*', (c, next) =>
   serveStatic({
-    root: path.relative(process.cwd(), DATA_DIR),
+    root: MEDIA_DIR,
+    rewriteRequestPath: (p) => p.replace(/^\/media/, ''),
     // Hono's mime table has no .m4a, which would otherwise go out as octet-stream.
-    onFound: (p, c) => {
-      if (p.endsWith('.m4a')) c.header('Content-Type', 'audio/mp4')
+    onFound: (p, ctx) => {
+      if (p.endsWith('.m4a')) ctx.header('Content-Type', 'audio/mp4')
     },
-  }),
+  })(c, next),
 )
 
 backfillLoudness()

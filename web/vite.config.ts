@@ -13,6 +13,9 @@ export default defineConfig({
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
   server: {
+    // Fixed: localStorage (current track, volume, settings) is per origin, so a port change would reset it.
+    port: Number(process.env.WEB_PORT ?? 5174),
+    strictPort: true,
     proxy: {
       '/api': api,
       '/media': api,

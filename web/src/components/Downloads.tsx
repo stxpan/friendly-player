@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Download, Loader2, Plus, Search, X } from 'lucide-react'
+import { Loader2, Plus, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
-import { api, type Job } from '@/lib/api'
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { api, type Job, type Playlist } from '@/lib/api'
 
 // Big imports queue 1000+ jobs; rendering all of them every second isn't worth it.
 const VISIBLE_PENDING = 50
@@ -18,10 +19,17 @@ type Props = {
   onOpenChange: (open: boolean) => void
   // Pick the right YouTube Music track by hand for an import that wasn't matched automatically.
   onFix: (job: Job) => void
+  playlists: Playlist[]
+  // Tracks (or a new playlist) were added straight away; library and playlists should be reloaded.
+  onAdded: () => void
 }
 
-export function Downloads({ jobs, open, onOpenChange, onFix }: Props) {
+// Select values: the library only, or an existing playlist id.
+const LIBRARY = 'library'
+
+export function Downloads({ jobs, open, onOpenChange, onFix, playlists, onAdded }: Props) {
   const [url, setUrl] = useState('')
+  const [target, setTarget] = useState(LIBRARY)
   const [submitting, setSubmitting] = useState(false)
 
   const pending = jobs.filter((j) => j.status !== 'error')
@@ -32,8 +40,13 @@ export function Downloads({ jobs, open, onOpenChange, onFix }: Props) {
     if (!url.trim()) return
     setSubmitting(true)
     try {
-      const added = await api.download(url.trim())
-      toast.success(added.length ? `В очереди: ${added.length}` : 'Уже в библиотеке или в очереди')
+      const playlist = target === LIBRARY ? null : Number(target)
+      const { added, queued } = await api.addByUrl(url.trim(), playlist)
+      const where = playlist === null ? 'в библиотеку' : 'в плейлист'
+      if (queued) toast.success(`Ищем на YouTube Music: ${queued} — треки появятся ${where} по мере нахождения`)
+      else if (added || playlist !== null) toast.success(`Добавлено ${where}`)
+      else toast.success('Уже в библиотеке')
+      onAdded()
       setUrl('')
     } catch (err) {
       toast.error((err as Error).message)
@@ -46,36 +59,67 @@ export function Downloads({ jobs, open, onOpenChange, onFix }: Props) {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
         <Button variant="outline">
-          <Download />
-          Загрузки
+          <Plus />
+          Добавить
           {pending.length > 0 && <Badge className="tabular-nums">{pending.length}</Badge>}
         </Button>
       </SheetTrigger>
       <SheetContent className="gap-0">
         <SheetHeader>
-          <SheetTitle>Загрузки</SheetTitle>
-          <SheetDescription>Видео или плейлист YouTube, плейлист Яндекс Музыки</SheetDescription>
+          <SheetTitle>Добавить музыку</SheetTitle>
+          <SheetDescription>
+            Вставь ссылку на видео или плейлист YouTube либо на плейлист Яндекс Музыки. Треки появятся в библиотеке и
+            будут играть онлайн. Чтобы слушать без интернета, скачай их кнопкой «Скачать всё» над списком.
+          </SheetDescription>
         </SheetHeader>
 
-        <form onSubmit={submit} className="flex gap-2 px-4 pb-4">
-          <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Ссылка" disabled={submitting} />
-          <Button type="submit" size="icon" disabled={submitting || !url.trim()}>
-            {submitting ? <Loader2 className="animate-spin" /> : <Plus />}
-          </Button>
+        <form onSubmit={submit} className="flex flex-col gap-2 px-4 pb-4">
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://music.yandex.ru/playlists/…"
+            disabled={submitting}
+          />
+          <div className="flex gap-2">
+            <Select value={target} onValueChange={setTarget} disabled={submitting}>
+              <SelectTrigger className="min-w-0 flex-1" aria-label="Куда добавить">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={LIBRARY}>Только в библиотеку</SelectItem>
+                {playlists.length > 0 && <SelectSeparator />}
+                {playlists.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    В плейлист «{p.name}»
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="submit" disabled={submitting || !url.trim()}>
+              {submitting ? <Loader2 className="animate-spin" /> : <Plus />}
+              Добавить
+            </Button>
+          </div>
         </form>
 
         <ScrollArea className="min-h-0 flex-1 border-t">
-          {jobs.length === 0 && <p className="p-4 text-sm text-muted-foreground">Очередь пуста</p>}
+          {jobs.length === 0 && (
+            <p className="p-4 text-sm text-muted-foreground">Сейчас ничего не добавляется и не скачивается</p>
+          )}
+          {jobs.length > 0 && (
+            <p className="px-4 pt-4 text-xs font-medium text-muted-foreground uppercase">В работе</p>
+          )}
           <ul className="flex flex-col gap-3 p-4">
             {pending.slice(0, VISIBLE_PENDING).map((job) => (
               <li key={job.id} className="flex flex-col gap-1 text-sm">
                 <div className="flex justify-between gap-2">
                   <span className="truncate">{job.title}</span>
                   <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {job.status === 'queued' ? 'ждёт' : `${Math.round(job.progress)}%`}
+                    {job.status === 'queued' && 'ждёт'}
+                    {job.status === 'downloading' && (job.kind === 'add' ? 'ищем…' : `${Math.round(job.progress)}%`)}
                   </span>
                 </div>
-                <Progress value={job.progress} />
+                {job.kind === 'download' && <Progress value={job.progress} />}
               </li>
             ))}
             {pending.length > VISIBLE_PENDING && (

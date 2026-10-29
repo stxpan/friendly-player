@@ -9,6 +9,7 @@
   "dependencies": {
     "@hono/node-server": "^2.1.5",
     "hono": "^4.13.14",
+    "onnxruntime-node": "1.30.0",
     "youtube-dl-exec": "^3.1.17",
     "youtubei.js": "^18.3.0"
   },

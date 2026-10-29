@@ -15,7 +15,7 @@ type ApiTrack = {
 
 // Public playlists via the unofficial API the web player itself uses.
 // It answers 451 to foreign IPs, so the host must be reachable without VPN.
-export async function fetchYandexPlaylist(url: URL): Promise<YandexTrack[]> {
+export async function fetchYandexPlaylist(url: URL): Promise<{ title: string; tracks: YandexTrack[] }> {
   const uuid = url.pathname.match(/\/playlists\/(lk\.[\w-]+)/)?.[1]
   if (!uuid) throw new Error('Поддерживаются ссылки вида music.yandex.ru/playlists/lk.…')
 
@@ -24,11 +24,14 @@ export async function fetchYandexPlaylist(url: URL): Promise<YandexTrack[]> {
   if (res.status === 403) throw new Error('Яндекс Музыка отклонила запрос (403) — попробуй ещё раз')
   if (!res.ok) throw new Error(`Яндекс Музыка ответила ${res.status}`)
 
-  const { result } = (await res.json()) as { result: { tracks: { track: ApiTrack }[] } }
-  return result.tracks.map(({ track }) => ({
-    id: track.id,
-    title: track.version ? `${track.title} (${track.version})` : track.title,
-    artists: track.artists.map((a) => a.name),
-    durationMs: track.durationMs,
-  }))
+  const { result } = (await res.json()) as { result: { title: string; tracks: { track: ApiTrack }[] } }
+  return {
+    title: result.title,
+    tracks: result.tracks.map(({ track }) => ({
+      id: track.id,
+      title: track.version ? `${track.title} (${track.version})` : track.title,
+      artists: track.artists.map((a) => a.name),
+      durationMs: track.durationMs,
+    })),
+  }
 }

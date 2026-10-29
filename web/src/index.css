@@ -67,7 +67,7 @@
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
     --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
+    --chart-1: #2a78d6; /* dataviz reference palette, slot 1 (light) */
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
@@ -102,7 +102,7 @@
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
+    --chart-1: #3987e5; /* dataviz reference palette, slot 1 (dark) */
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
@@ -120,9 +120,28 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Thin themed scrollbar for native overflow containers (the virtual list can't use ScrollArea). */
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 35%, transparent) transparent;
     }
   body {
     @apply bg-background text-foreground;
+    }
+  /* Tailwind v4 dropped the pointer cursor on buttons; bring it back for everything clickable. */
+  :is(
+      button,
+      a[href],
+      summary,
+      [role='button'],
+      [role='menuitem'],
+      [role='menuitemradio'],
+      [role='menuitemcheckbox'],
+      [role='option'],
+      [role='tab'],
+      [role='slider'],
+      [data-slot='slider']
+    ):not(:disabled, [aria-disabled='true'], [data-disabled]) {
+    cursor: pointer;
     }
   html {
     @apply font-sans;

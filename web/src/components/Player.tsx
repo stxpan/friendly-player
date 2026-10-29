@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import {
+  Check,
+  Download,
+  Loader2,
   MicVocal,
   Music,
   Pause,
@@ -12,13 +15,15 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
-import { formatTime, type Track } from '@/lib/api'
+import { api, formatTime, type NowPlaying } from '@/lib/api'
 import { load, save } from '@/lib/storage'
 import { cn } from '@/lib/utils'
 
 export type RepeatMode = 'off' | 'one' | 'all'
+export type DownloadState = 'none' | 'queued' | 'done'
 
 // Loudness tracks are brought down to (YouTube's own playback target). Quieter tracks are left
 // as is: <audio>.volume can't go above 1.
@@ -26,7 +31,9 @@ const TARGET_LUFS = -14
 
 type Props = {
   audio: RefObject<HTMLAudioElement | null>
-  track: Track | null
+  track: NowPlaying | null
+  // For a streamed track: whether it's already saved, and how to save it.
+  download: { state: DownloadState; start: () => void } | null
   shuffle: boolean
   onToggleShuffle: () => void
   repeat: RepeatMode
@@ -35,11 +42,18 @@ type Props = {
   onToggleLyrics: () => void
   onNext: () => void
   onPrev: () => void
+  // A listening session was saved; play counts changed.
+  onPlayRecorded: () => void
+  // Bring loud tracks down to a common level (setting).
+  normalize: boolean
 }
+
+type Session = { trackId: string; playedAt: number; listened: number; lastTime: number }
 
 export function Player({
   audio,
   track,
+  download,
   shuffle,
   onToggleShuffle,
   repeat,
@@ -48,6 +62,8 @@ export function Player({
   onToggleLyrics,
   onNext,
   onPrev,
+  onPlayRecorded,
+  normalize,
 }: Props) {
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
@@ -59,7 +75,13 @@ export function Player({
   // Position saved before reload; applied once, when that same track loads again.
   const resumeAt = useRef(load<{ id: string; time: number } | null>('player.position', null))
 
-  const gain = track?.loudness != null ? Math.min(1, 10 ** ((TARGET_LUFS - track.loudness) / 20)) : 1
+  // Source and loudness are fixed for as long as a track plays. When an online track finishes
+  // downloading mid-play, switching to the local file would restart it from zero, and its freshly
+  // measured loudness would jump the volume; both apply from the next play on.
+  const started = useRef<{ id?: string; src?: string; loudness?: number | null }>({})
+  if (started.current.id !== track?.id) started.current = { id: track?.id, src: track?.src, loudness: track?.loudness }
+  const { src, loudness } = started.current
+  const gain = normalize && loudness != null ? Math.min(1, 10 ** ((TARGET_LUFS - loudness) / 20)) : 1
 
   useEffect(() => {
     if (!audio.current) return
@@ -68,6 +90,46 @@ export function Player({
     save('player.volume', volume)
     save('player.muted', muted)
   }, [audio, volume, muted, gain])
+
+  // --- listening statistics ---
+  // Seconds actually heard (seeking doesn't count) for the current library track. Reported when
+  // the track changes or ends, and when the tab closes.
+  const session = useRef<Session | null>(null)
+  const recorded = useRef(onPlayRecorded)
+  recorded.current = onPlayRecorded
+
+  const flush = (completed: boolean) => {
+    const s = session.current
+    session.current = null
+    if (!s || s.listened < 1) return
+    api
+      .recordPlay({ trackId: s.trackId, playedAt: s.playedAt, listened: Math.round(s.listened), completed })
+      .then(() => recorded.current())
+      .catch(() => {})
+  }
+
+  const startSession = () => {
+    session.current =
+      track && !track.streamed ? { trackId: track.id, playedAt: Date.now(), listened: 0, lastTime: audio.current?.currentTime ?? 0 } : null
+  }
+
+  useEffect(() => {
+    startSession()
+    return () => flush(false)
+    // Keyed by id on purpose: one session per track, not per render.
+  }, [track?.id, track?.streamed])
+
+  useEffect(() => {
+    const onHide = () => {
+      const s = session.current
+      if (!s || s.listened < 1) return
+      const body = JSON.stringify({ trackId: s.trackId, playedAt: s.playedAt, listened: Math.round(s.listened), completed: false })
+      navigator.sendBeacon('/api/plays', new Blob([body], { type: 'application/json' }))
+      session.current = null
+    }
+    window.addEventListener('pagehide', onHide)
+    return () => window.removeEventListener('pagehide', onHide)
+  }, [])
 
   const toggle = () => {
     const a = audio.current
@@ -93,7 +155,7 @@ export function Player({
       ? new MediaMetadata({
           title: track.title,
           artist: track.artist ?? '',
-          artwork: track.thumb ? [{ src: new URL(`/media/${track.thumb}`, location.origin).href }] : [],
+          artwork: track.cover ? [{ src: new URL(track.cover, location.origin).href }] : [],
         })
       : null
   }, [track])
@@ -154,15 +216,26 @@ export function Player({
   }, [audio])
 
   return (
-    <footer className="flex items-center gap-4 border-t bg-card px-4 py-3">
+    <footer className="grid grid-cols-[minmax(0,1fr)_minmax(0,36rem)_minmax(0,1fr)] items-center gap-6 border-t bg-card px-4 py-3">
       <audio
         ref={audio}
-        src={track ? `/media/${track.file}` : undefined}
+        src={src}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
+        onError={() => {
+          if (track) toast.error(`Не удалось воспроизвести «${track.title}»`)
+        }}
         onTimeUpdate={(e) => {
           setTime(e.currentTarget.currentTime)
-          if (track) save('player.position', { id: track.id, time: e.currentTarget.currentTime })
+          const s = session.current
+          if (s) {
+            // Small forward steps are playback; jumps are seeks and don't count as listening.
+            const step = e.currentTarget.currentTime - s.lastTime
+            if (step > 0 && step < 2) s.listened += step
+            s.lastTime = e.currentTarget.currentTime
+          }
+          // Streams aren't restored after reload, so their position isn't worth keeping.
+          if (track && !track.streamed) save('player.position', { id: track.id, time: e.currentTarget.currentTime })
         }}
         onLoadedMetadata={(e) => {
           const a = e.currentTarget
@@ -173,38 +246,56 @@ export function Player({
           resumeAt.current = null
         }}
         onEnded={(e) => {
+          flush(true)
           if (repeat === 'one') {
+            startSession()
             e.currentTarget.currentTime = 0
             e.currentTarget.play()
           } else onNext()
         }}
       />
 
-      <div className="flex w-64 min-w-0 items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
-          {track?.thumb ? (
-            <img src={`/media/${track.thumb}`} alt="" className="size-full object-cover" />
+          {track?.cover ? (
+            <img src={track.cover} alt="" className="size-full object-cover" />
           ) : (
             <Music className="size-5 text-muted-foreground" />
           )}
         </div>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{track?.title ?? 'Ничего не играет'}</div>
-          <div className="truncate text-xs text-muted-foreground">{track?.artist}</div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium" title={track?.title}>
+            {track?.title ?? 'Ничего не играет'}
+          </div>
+          <div className="truncate text-xs text-muted-foreground" title={track?.artist ?? undefined}>
+            {track?.streamed && download?.state !== 'done' ? `YouTube Music · ${track.artist}` : track?.artist}
+          </div>
         </div>
+        {download && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            disabled={download.state !== 'none'}
+            onClick={download.start}
+            title={{ none: 'Скачать в библиотеку', queued: 'Скачивается…', done: 'В библиотеке' }[download.state]}
+          >
+            {download.state === 'done' ? <Check /> : download.state === 'queued' ? <Loader2 className="animate-spin" /> : <Download />}
+          </Button>
+        )}
       </div>
 
-      <div className="flex flex-1 flex-col items-center gap-1">
+      <div className="flex min-w-0 flex-col items-center gap-1">
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
-            onClick={onToggleShuffle}
-            aria-pressed={shuffle}
-            title={shuffle ? 'Перемешивание включено' : 'Перемешивание выключено'}
-            className={cn(shuffle ? 'text-primary' : 'text-muted-foreground')}
+            onClick={onCycleRepeat}
+            aria-pressed={repeat !== 'off'}
+            title={{ off: 'Повтор выключен', one: 'Повтор трека', all: 'Повтор списка' }[repeat]}
+            className={cn(repeat === 'off' ? 'text-muted-foreground' : 'text-primary')}
           >
-            <Shuffle />
+            {repeat === 'one' ? <Repeat1 /> : <Repeat />}
           </Button>
           <Button variant="ghost" size="icon" onClick={prev} disabled={!track}>
             <SkipBack />
@@ -218,15 +309,15 @@ export function Player({
           <Button
             variant="ghost"
             size="icon"
-            onClick={onCycleRepeat}
-            aria-pressed={repeat !== 'off'}
-            title={{ off: 'Повтор выключен', one: 'Повтор трека', all: 'Повтор списка' }[repeat]}
-            className={cn(repeat === 'off' ? 'text-muted-foreground' : 'text-primary')}
+            onClick={onToggleShuffle}
+            aria-pressed={shuffle}
+            title={shuffle ? 'Перемешивание включено' : 'Перемешивание выключено'}
+            className={cn(shuffle ? 'text-primary' : 'text-muted-foreground')}
           >
-            {repeat === 'one' ? <Repeat1 /> : <Repeat />}
+            <Shuffle />
           </Button>
         </div>
-        <div className="flex w-full max-w-xl items-center gap-2 text-xs tabular-nums text-muted-foreground">
+        <div className="flex w-full items-center gap-2 text-xs tabular-nums text-muted-foreground">
           <span className="w-10 text-right">{formatTime(seek ?? time)}</span>
           <Slider
             value={[seek ?? time]}
@@ -243,7 +334,7 @@ export function Player({
         </div>
       </div>
 
-      <div className="flex w-52 items-center justify-end gap-2">
+      <div className="flex min-w-0 items-center justify-end gap-2">
         <Button
           variant="ghost"
           size="icon"
