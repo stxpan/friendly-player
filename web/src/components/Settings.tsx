@@ -18,6 +18,7 @@ type Props = {
 }
 
 const CLEANUP_DAYS = [30, 90, 180, 365]
+const MODEL_POLL_MS = 1000
 
 function bytes(n: number) {
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} ГБ`
@@ -44,6 +45,16 @@ export function Settings({ client, onClientChange, onLibraryChanged }: Props) {
   const [days, setDays] = useState('90')
   const [preview, setPreview] = useState<{ count: number; bytes: number } | null>(null)
   const [cleaning, setCleaning] = useState(false)
+  const [removingModel, setRemovingModel] = useState(false)
+  const model = server?.lyricsModel
+
+  // Follow the model download (started by switching syncing on, or on first launch).
+  const fetchingModel = Boolean(model?.enabled && !model.ready)
+  useEffect(() => {
+    if (!fetchingModel) return
+    const id = setInterval(() => api.settings().then(setServer, () => {}), MODEL_POLL_MS)
+    return () => clearInterval(id)
+  }, [fetchingModel])
 
   const loadUsage = () => api.storage().then(setUsage, (e) => toast.error(e.message))
 
@@ -68,6 +79,32 @@ export function Settings({ client, onClientChange, onLibraryChanged }: Props) {
       toast.error((e as Error).message)
     }
   }
+
+  const toggleSync = async (on: boolean) => {
+    try {
+      setServer(await api.saveSettings({ syncLyrics: on }))
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
+  const removeModel = async () => {
+    setRemovingModel(true)
+    try {
+      setServer(await api.deleteLyricsModel())
+      toast.success('Модель удалена, освобождено 364 МБ')
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setRemovingModel(false)
+    }
+  }
+
+  let modelHint = 'Модель не скачана'
+  if (model?.downloading?.total)
+    modelHint = `Скачиваем модель: ${bytes(model.downloading.received)} из ${bytes(model.downloading.total)}`
+  else if (fetchingModel) modelHint = 'Скачиваем модель…'
+  else if (model?.ready) modelHint = 'Модель скачана (364 МБ)'
 
   const moveFolder = async () => {
     setMoving(true)
@@ -127,6 +164,32 @@ export function Settings({ client, onClientChange, onLibraryChanged }: Props) {
               onCheckedChange={(v) => onClientChange({ ...client, confirmDelete: v })}
             />
           </Row>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="text-sm font-medium">Тексты песен</h3>
+        <div className="divide-y">
+          <Row
+            title="Синхронизировать тексты автоматически"
+            hint="Если у песни есть только текст без тайминга, плеер сам расставит строки по времени. Нужна модель на 364 МБ, она скачается один раз."
+          >
+            {model ? (
+              <Switch checked={model.enabled} onCheckedChange={toggleSync} />
+            ) : (
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            )}
+          </Row>
+          {model && (
+            <Row title={modelHint}>
+              {model.ready && !model.downloading && (
+                <Button variant="outline" size="sm" disabled={removingModel} onClick={removeModel}>
+                  {removingModel && <Loader2 className="animate-spin" />}
+                  Удалить модель
+                </Button>
+              )}
+            </Row>
+          )}
         </div>
       </section>
 

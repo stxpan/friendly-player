@@ -2,7 +2,8 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
-export const DATA_DIR = path.resolve(import.meta.dirname, '../data')
+// The desktop app keeps data in the user's profile; run from source it's server/data.
+export const DATA_DIR = process.env.PLAYER_DATA_DIR ?? path.resolve(import.meta.dirname, '../data')
 export const DEFAULT_MEDIA_DIR = path.join(DATA_DIR, 'media')
 // Where downloaded audio and covers live; can be moved in settings (see setMediaDir). Importers
 // see reassignments: ES module exports are live bindings.

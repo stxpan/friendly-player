@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { alignLyrics, ensureModel, isModelReady } from './align.ts'
+import { alignLyrics, ensureModel, isModelReady, isSyncEnabled } from './align.ts'
 import { getLyrics, getTrack, MEDIA_DIR, saveLyrics } from './db.ts'
 import { innertube } from './search.ts'
 import { streamUrl } from './stream.ts'
@@ -10,6 +10,8 @@ export type Lyrics = {
   source: string | null
   // Nothing found because LRCLIB was unreachable, not because there are no lyrics: worth asking again.
   retry?: boolean
+  // Plain text only, and automatic syncing is switched off in settings.
+  syncOff?: boolean
 }
 
 const API = 'https://lrclib.net/api'
@@ -113,7 +115,7 @@ const lrcTime = (sec: number) => {
 
 // `urgent` puts the track first: it's the one playing, as opposed to a prefetch of the next one.
 export function requestSync(trackId: string, urgent: boolean) {
-  if (getLyrics(trackId) || syncState.get(trackId) === 'aligning') return
+  if (!isSyncEnabled() || getLyrics(trackId) || syncState.get(trackId) === 'aligning') return
   // Long tracks are mixes, live sets and podcasts more often than songs; not worth the CPU.
   if ((getTrack(trackId)?.duration ?? 0) > MAX_SYNC_SEC) return
   const i = syncQueue.indexOf(trackId)
@@ -174,9 +176,9 @@ export async function lyricsFor(trackId: string): Promise<(Lyrics & { syncing?: 
     return lyrics
   }
   // Plain text only: show it now and time it in the background.
-  if (lyrics.plain) {
-    pending.set(trackId, lyrics)
-    requestSync(trackId, true)
-  }
+  if (!lyrics.plain) return lyrics
+  if (!isSyncEnabled()) return { ...lyrics, syncOff: true }
+  pending.set(trackId, lyrics)
+  requestSync(trackId, true)
   return { ...lyrics, syncing: syncState.get(trackId) }
 }

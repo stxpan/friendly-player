@@ -1,0 +1,30 @@
+appId: com.stxpan.friendlyplayer
+productName: Friendly Player
+copyright: Non-commercial (lyrics model is CC-BY-NC-4.0)
+directories:
+  output: dist
+files:
+  - main.cjs
+extraResources:
+  - from: build/server
+    to: server
+  - from: build/web
+    to: web
+  - from: build/bin
+    to: bin
+win:
+  target:
+    - target: nsis
+      arch: x64
+  icon: icon.png
+nsis:
+  # Assisted installer: shows the folder choice and the lyrics-sync checkbox page.
+  oneClick: false
+  # Per-user (no admin): yt-dlp updates itself inside the install folder, which must be writable.
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  installerLanguages: [ru_RU]
+  language: '1049'
+  include: installer.nsh
+  artifactName: Friendly-Player-Setup-${version}.${ext}
+  shortcutName: Friendly Player

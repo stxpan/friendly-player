@@ -54,7 +54,13 @@ export type SearchPage = { results: SearchResult[]; more: string | null }
 
 export type Playlist = { id: number; name: string; tracks: { id: string; addedAt: number; position: number | null }[] }
 
-export type ServerSettings = { concurrency: number; mediaDir: string; defaultMediaDir: string }
+export type ServerSettings = {
+  concurrency: number
+  mediaDir: string
+  defaultMediaDir: string
+  // The lyrics-sync model: switched on, downloaded, and bytes so far while it downloads.
+  lyricsModel: { enabled: boolean; ready: boolean; downloading: { received: number; total: number } | null }
+}
 
 export type Lyrics = {
   synced: string | null
@@ -64,6 +70,8 @@ export type Lyrics = {
   syncing?: 'model' | 'queued' | 'aligning'
   // Nothing found only because LRCLIB was unreachable; ask again later.
   retry?: boolean
+  // Plain text only, and automatic syncing is switched off in settings.
+  syncOff?: boolean
 }
 
 // What the player is playing: a downloaded track, or a YouTube Music result streamed without downloading.
@@ -125,8 +133,9 @@ export const api = {
   prepareStream: (id: string) => request<void>(`/api/stream/${id}/prepare`, { method: 'POST' }),
 
   settings: () => request<ServerSettings>('/api/settings'),
-  saveSettings: (s: { concurrency?: number; mediaDir?: string }) =>
+  saveSettings: (s: { concurrency?: number; mediaDir?: string; syncLyrics?: boolean }) =>
     request<ServerSettings & { moved?: { moved: number; leftBehind: number } }>('/api/settings', json('PUT', s)),
+  deleteLyricsModel: () => request<ServerSettings>('/api/lyrics-model', { method: 'DELETE' }),
   storage: () => request<{ downloaded: number; online: number; bytes: number; mediaDir: string }>('/api/storage'),
   cleanupPreview: (days: number) => request<{ count: number; bytes: number }>(`/api/storage/cleanup?days=${days}`),
   cleanup: (days: number) => request<{ count: number; bytes: number }>('/api/storage/cleanup', json('POST', { days })),

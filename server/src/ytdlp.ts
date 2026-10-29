@@ -2,10 +2,12 @@ import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import readline from 'node:readline'
 
-// Binary is fetched into node_modules by youtube-dl-exec's postinstall;
-// its typings don't declare the constants module, hence the plain require.
-const { YOUTUBE_DL_PATH } = createRequire(import.meta.url)('youtube-dl-exec/src/constants') as { YOUTUBE_DL_PATH: string }
-const YTDLP = process.env.YTDLP_PATH ?? YOUTUBE_DL_PATH
+// The desktop app ships its own copy (YTDLP_PATH). From source the binary is fetched into
+// node_modules by youtube-dl-exec's postinstall; its typings don't declare the constants module,
+// hence the plain require.
+const YTDLP =
+  process.env.YTDLP_PATH ??
+  (createRequire(import.meta.url)('youtube-dl-exec/src/constants') as { YOUTUBE_DL_PATH: string }).YOUTUBE_DL_PATH
 
 export function run(args: string[], onLine?: (line: string) => void) {
   return new Promise<string>((resolve, reject) => {

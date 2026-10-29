@@ -10,7 +10,7 @@ import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { Worker } from 'node:worker_threads'
 import type { AlignRequest, AlignResponse } from './align-worker.ts'
-import { DATA_DIR } from './db.ts'
+import { DATA_DIR, getSetting, setSetting } from './db.ts'
 
 const MODEL_DIR = path.join(DATA_DIR, 'models', 'mms-fa-int8')
 // The fp16 model used before; replaced by the int8 one, so it's removed once that is in place.
@@ -30,6 +30,27 @@ const MODEL_FILES = [
 export const isModelReady = () => MODEL_FILES.every((f) => existsSync(path.join(MODEL_DIR, f.name)))
 
 let downloading: Promise<void> | undefined
+// Bytes of the model file fetched so far, while it downloads.
+let progress: { received: number; total: number } | null = null
+
+// Syncing is opt-in for the desktop app (a checkbox in the installer sets the default);
+// when it's off, plain lyrics are shown as they are and the model isn't needed.
+export const isSyncEnabled = () => getSetting('syncLyrics', process.env.PLAYER_SYNC_LYRICS !== '0')
+
+export function setSyncEnabled(on: boolean) {
+  setSetting('syncLyrics', on)
+  if (on) ensureModel().catch((e) => console.warn(`Модель синхронизации: ${(e as Error).message}`))
+}
+
+export const modelStatus = () => ({ enabled: isSyncEnabled(), ready: isModelReady(), downloading: progress })
+
+// Frees the 364 MB; syncing is switched off, since it would fetch the model again.
+export async function deleteModel() {
+  if (downloading) throw new Error('Модель сейчас скачивается — дождись окончания')
+  setSetting('syncLyrics', false)
+  await worker?.terminate()
+  await rm(MODEL_DIR, { recursive: true, force: true })
+}
 
 export function ensureModel() {
   downloading ??= downloadModel().catch((e) => {
@@ -46,16 +67,20 @@ async function downloadModel() {
     if (existsSync(dest)) continue
     const res = await fetch(`${MODEL_BASE_URL}/${f.remote}`)
     if (!res.ok || !res.body) throw new Error(`Не удалось скачать модель: HTTP ${res.status}`)
+    progress = { received: 0, total: Number(res.headers.get('content-length')) || 0 }
     // Written under a temporary name and renamed only once complete and verified.
     const part = `${dest}.part`
     const hash = createHash('sha256')
     const hashing = new Transform({
       transform(chunk, _enc, done) {
         hash.update(chunk)
+        if (progress) progress.received += chunk.length
         done(null, chunk)
       },
     })
-    await pipeline(Readable.fromWeb(res.body as never), hashing, createWriteStream(part))
+    await pipeline(Readable.fromWeb(res.body as never), hashing, createWriteStream(part)).finally(() => {
+      progress = null
+    })
     if (f.sha256 && hash.digest('hex') !== f.sha256) {
       await rm(part, { force: true })
       throw new Error('Модель скачалась повреждённой, попробуй ещё раз')
@@ -72,7 +97,8 @@ const waiting = new Map<number, { resolve: (t: (number | null)[]) => void; rejec
 
 function getWorker() {
   if (!worker) {
-    worker = new Worker(new URL('./align-worker.ts', import.meta.url))
+    // .ts when run from source, .mjs in the desktop app's bundle.
+    worker = new Worker(new URL(`./align-worker${path.extname(import.meta.url)}`, import.meta.url))
     worker.on('message', ({ id, times, error }: AlignResponse) => {
       const job = waiting.get(id)
       waiting.delete(id)

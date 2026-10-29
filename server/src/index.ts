@@ -32,6 +32,7 @@ import {
   setConcurrency,
   type ImportTarget,
 } from './downloader.ts'
+import { deleteModel, ensureModel, isModelReady, isSyncEnabled, modelStatus, setSyncEnabled } from './align.ts'
 import { backfillLoudness } from './loudness.ts'
 import { lookup, lyricsFor, requestSync } from './lyrics.ts'
 import { radio, searchFirst, searchMore } from './search.ts'
@@ -233,11 +234,19 @@ app.post('/api/ytdlp/update', async (c) => {
 
 // --- settings & storage ---
 
-app.get('/api/settings', (c) => c.json({ concurrency: getConcurrency(), mediaDir: MEDIA_DIR, defaultMediaDir: DEFAULT_MEDIA_DIR }))
+const settings = () => ({
+  concurrency: getConcurrency(),
+  mediaDir: MEDIA_DIR,
+  defaultMediaDir: DEFAULT_MEDIA_DIR,
+  lyricsModel: modelStatus(),
+})
+
+app.get('/api/settings', (c) => c.json(settings()))
 
 app.put('/api/settings', async (c) => {
-  const body = await c.req.json<{ concurrency?: number; mediaDir?: string }>()
+  const body = await c.req.json<{ concurrency?: number; mediaDir?: string; syncLyrics?: boolean }>()
   if (body.concurrency !== undefined) setConcurrency(body.concurrency)
+  if (body.syncLyrics !== undefined) setSyncEnabled(body.syncLyrics)
   let moved
   if (body.mediaDir !== undefined) {
     try {
@@ -246,7 +255,16 @@ app.put('/api/settings', async (c) => {
       return c.json({ error: (e as Error).message }, 400)
     }
   }
-  return c.json({ concurrency: getConcurrency(), mediaDir: MEDIA_DIR, moved })
+  return c.json({ ...settings(), moved })
+})
+
+app.delete('/api/lyrics-model', async (c) => {
+  try {
+    await deleteModel()
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 409)
+  }
+  return c.json(settings())
 })
 
 app.get('/api/storage', async (c) => c.json(await usage()))
@@ -268,6 +286,30 @@ app.use('/media/*', (c, next) =>
   })(c, next),
 )
 
-backfillLoudness()
+// The desktop app serves the built web UI from here; in development Vite does.
+const WEB_DIR = process.env.PLAYER_WEB_DIR
+if (WEB_DIR) {
+  app.use('*', serveStatic({ root: WEB_DIR }))
+  // Anything else is a page of the single-page app.
+  app.get('*', serveStatic({ root: WEB_DIR, path: 'index.html' }))
+}
 
-serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 3001) }, (info) => console.log(`Server on http://localhost:${info.port}`))
+// Started by the desktop app: quit along with it, even when it didn't get to stop the server.
+const PARENT_PID = Number(process.env.PLAYER_PARENT_PID)
+if (PARENT_PID) {
+  setInterval(() => {
+    try {
+      process.kill(PARENT_PID, 0)
+    } catch {
+      process.exit(0)
+    }
+  }, 2000).unref()
+}
+
+backfillLoudness()
+// First run with syncing on (the installer's checkbox): fetch the model in the background.
+if (isSyncEnabled() && !isModelReady()) ensureModel().catch((e) => console.warn(`Модель синхронизации: ${(e as Error).message}`))
+
+serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 3001), hostname: process.env.HOST }, (info) =>
+  console.log(`Server on http://localhost:${info.port}`),
+)

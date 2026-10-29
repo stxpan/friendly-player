@@ -179,7 +179,11 @@ export function Lyrics({ tabs, side, track, audio }: Props) {
             <Loader2 className="size-3 animate-spin" /> {SYNC_STATUS[data.syncing]}
           </p>
         ) : (
-          <p className="mb-3 text-xs text-muted-foreground">Без синхронизации — для этого трека нет текста с таймингом</p>
+          <p className="mb-3 text-xs text-muted-foreground">
+            {data.syncOff
+              ? 'Без синхронизации — автоматическая синхронизация выключена в настройках'
+              : 'Без синхронизации — для этого трека нет текста с таймингом'}
+          </p>
         )}
         <p className="text-base leading-relaxed whitespace-pre-line">{data.plain}</p>
       </>
