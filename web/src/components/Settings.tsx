@@ -20,6 +20,18 @@ type Props = {
 const CLEANUP_DAYS = [30, 90, 180, 365]
 const MODEL_POLL_MS = 1000
 
+// Keep in sync with the handlers in Player.tsx (keyboard, media session), SearchBar.tsx and the
+// desktop app's global shortcuts (desktop/main.cjs).
+const HOTKEYS: { keys: string[]; action: string }[] = [
+  { keys: ['Пробел'], action: 'Пауза / продолжить' },
+  { keys: ['←', '→'], action: 'Перемотать на 5 секунд назад / вперёд' },
+  { keys: ['↑', '↓'], action: 'Громче / тише' },
+  { keys: ['Ctrl+Shift+A', 'Ctrl+Shift+D'], action: 'Предыдущий / следующий трек (в приложении — и из других программ)' },
+  { keys: ['/'], action: 'Перейти к поиску (в любой раскладке)' },
+  { keys: ['Esc'], action: 'В поиске: очистить и выйти' },
+  { keys: ['⏯', '⏮', '⏭'], action: 'Медиаклавиши клавиатуры: пауза, предыдущий, следующий трек' },
+]
+
 function bytes(n: number) {
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} ГБ`
   return `${Math.round(n / 1024 ** 2)} МБ`
@@ -270,6 +282,29 @@ export function Settings({ client, onClientChange, onLibraryChanged }: Props) {
               </Button>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="text-sm font-medium">Горячие клавиши</h3>
+        <p className="text-xs text-muted-foreground">
+          Не срабатывают, пока курсор в поле ввода или открыто меню. Медиаклавиши работают и при свёрнутом окне.
+        </p>
+        <div className="divide-y">
+          {HOTKEYS.map(({ keys, action }) => (
+            <Row key={action} title={action}>
+              <span className="flex gap-1">
+                {keys.map((k) => (
+                  <kbd
+                    key={k}
+                    className="min-w-7 rounded border bg-muted px-1.5 py-0.5 text-center font-sans text-xs text-muted-foreground"
+                  >
+                    {k}
+                  </kbd>
+                ))}
+              </span>
+            </Row>
+          ))}
         </div>
       </section>
     </div>

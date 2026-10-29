@@ -8,4 +8,10 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.invoke('update-ready-version').then((version) => version && callback(version))
   },
   installUpdate: () => ipcRenderer.send('install-update'),
+  // System-wide track hotkeys; returns an unsubscribe function.
+  onTrackHotkey(callback) {
+    const listener = (_e, action) => callback(action)
+    ipcRenderer.on('track-hotkey', listener)
+    return () => ipcRenderer.removeListener('track-hotkey', listener)
+  },
 })

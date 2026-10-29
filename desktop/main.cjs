@@ -1,5 +1,5 @@
 // Desktop shell: starts the player's server in a utility process and shows its UI in a window.
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, utilityProcess } = require('electron')
+const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, shell, utilityProcess } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -100,6 +100,17 @@ function startUpdates() {
 ipcMain.handle('update-ready-version', () => updateReady)
 ipcMain.on('install-update', () => autoUpdater.quitAndInstall())
 
+// Previous / next track from anywhere, also while another app is focused. Not Ctrl+←/→: those move
+// the cursor by words in every text field. If another app already holds a combination, it stays
+// with that app; the hotkey works only inside the player then.
+const TRACK_HOTKEYS = { 'CommandOrControl+Shift+A': 'prev', 'CommandOrControl+Shift+D': 'next' }
+
+function registerHotkeys() {
+  for (const [accelerator, action] of Object.entries(TRACK_HOTKEYS)) {
+    globalShortcut.register(accelerator, () => win?.webContents.send('track-hotkey', action))
+  }
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -141,9 +152,13 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     createWindow()
+    registerHotkeys()
     startUpdates()
   })
 
   app.on('window-all-closed', () => app.quit())
-  app.on('will-quit', () => server?.kill())
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll()
+    server?.kill()
+  })
 }

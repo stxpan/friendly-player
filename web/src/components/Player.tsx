@@ -19,6 +19,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { api, formatTime, type NowPlaying } from '@/lib/api'
+import '@/lib/desktop'
 import { load, save } from '@/lib/storage'
 import { cn } from '@/lib/utils'
 
@@ -179,6 +180,25 @@ export function Player({
       for (const [action] of handlers) navigator.mediaSession.setActionHandler(action, null)
     }
   }, [audio])
+
+  // Ctrl+Shift+A / Ctrl+Shift+D: previous / next track. The desktop app registers them system-wide,
+  // so they also work from other apps; in a browser they work while the page is focused.
+  // By physical key, so they're the same keys in any layout.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return
+      if (e.code === 'KeyA') actions.current.prev()
+      else if (e.code === 'KeyD') actions.current.next()
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    const unsubscribe = window.desktop?.onTrackHotkey((action) => actions.current[action]())
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      unsubscribe?.()
+    }
+  }, [])
 
   // Space: play/pause, ←/→: seek 5 s, ↑/↓: volume. Ignored while typing or inside menus and dialogs.
   useEffect(() => {
