@@ -1,14 +1,16 @@
 import { useEffect, useRef } from 'react'
-import { Search } from 'lucide-react'
+import { Search, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 type Props = {
   value: string
   onChange: (value: string) => void
-  onEscape: () => void
+  // Esc or the × button.
+  onClear: () => void
 }
 
-export function SearchBar({ value, onChange, onEscape }: Props) {
+export function SearchBar({ value, onChange, onClear }: Props) {
   const input = useRef<HTMLInputElement>(null)
 
   // "/" jumps to search. Checked by physical key, so it works in any layout (in Russian it types ".").
@@ -32,13 +34,28 @@ export function SearchBar({ value, onChange, onEscape }: Props) {
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
-            onEscape()
+            onClear()
             e.currentTarget.blur()
           }
         }}
         placeholder="Поиск по библиотеке и YouTube Music  ( / )"
-        className="pl-8"
+        className="pr-9 pl-8"
       />
+      {value && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          title="Очистить"
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground"
+          onClick={() => {
+            onClear()
+            // Ready to type a new query.
+            input.current?.focus()
+          }}
+        >
+          <X />
+        </Button>
+      )}
     </div>
   )
 }

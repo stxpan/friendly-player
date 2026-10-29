@@ -191,6 +191,18 @@ export default function App() {
     }
   }
 
+  const clearSearch = () => {
+    setQuery('')
+    setFixing(null)
+  }
+
+  // Pages that aren't track lists give way to search results while something is typed, so
+  // opening one from the menu clears the search. Lists keep it: it searches within them.
+  const select = (v: View) => {
+    if (v === 'stats' || v === 'duplicates' || v === 'settings' || v === 'radio') clearSearch()
+    setView(v)
+  }
+
   const inLibrary = (id: string) => trackById.has(id)
   const current = playback.current
 
@@ -206,7 +218,7 @@ export default function App() {
           duplicateCount={duplicates.length}
           radioTitle={stream?.radio ?? null}
           playlists={playlists}
-          onSelect={setView}
+          onSelect={select}
           onCreate={actions.createPlaylist}
           onRename={actions.renamePlaylist}
           onDelete={actions.deletePlaylist}
@@ -217,10 +229,7 @@ export default function App() {
             <SearchBar
               value={query}
               onChange={setQuery}
-              onEscape={() => {
-                setQuery('')
-                setFixing(null)
-              }}
+              onClear={clearSearch}
             />
             <Downloads
               jobs={jobs}
