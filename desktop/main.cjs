@@ -1,5 +1,5 @@
 // Desktop shell: starts the player's server in a utility process and shows its UI in a window.
-const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, shell, utilityProcess } = require('electron')
+const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, session, shell, utilityProcess } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -111,6 +111,21 @@ function registerHotkeys() {
   }
 }
 
+// Versions up to 0.2.1 served the UI without cache headers, and the window kept showing the
+// cached old one after an update. Starting a new version drops the browser cache once.
+async function clearCacheAfterUpdate() {
+  const marker = path.join(app.getPath('userData'), 'ui-version.txt')
+  let last = null
+  try {
+    last = fs.readFileSync(marker, 'utf8').trim()
+  } catch {
+    // first launch
+  }
+  if (last === app.getVersion()) return
+  await session.defaultSession.clearCache()
+  fs.writeFileSync(marker, app.getVersion())
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -151,6 +166,7 @@ if (!app.requestSingleInstanceLock()) {
       app.quit()
       return
     }
+    await clearCacheAfterUpdate()
     createWindow()
     registerHotkeys()
     startUpdates()

@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import {
   addOnline,
   addToPlaylist,
@@ -289,9 +289,14 @@ app.use('/media/*', (c, next) =>
 // The desktop app serves the built web UI from here; in development Vite does.
 const WEB_DIR = process.env.PLAYER_WEB_DIR
 if (WEB_DIR) {
-  app.use('*', serveStatic({ root: WEB_DIR }))
+  // Built assets have a content hash in their names and never change; the page that lists them
+  // must be checked every time, or after an app update the window keeps showing the old UI.
+  // `p` is a file path, with backslashes on Windows.
+  const caching = (p: string, c: Context) =>
+    c.header('Cache-Control', /[\\/]assets[\\/]/.test(p) ? 'public, max-age=31536000, immutable' : 'no-cache')
+  app.use('*', serveStatic({ root: WEB_DIR, onFound: caching }))
   // Anything else is a page of the single-page app.
-  app.get('*', serveStatic({ root: WEB_DIR, path: 'index.html' }))
+  app.get('*', serveStatic({ root: WEB_DIR, path: 'index.html', onFound: caching }))
 }
 
 // Started by the desktop app: quit along with it, even when it didn't get to stop the server.
