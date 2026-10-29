@@ -2,12 +2,17 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('desktop', {
-  // Calls back with the version once an update has been downloaded (right away if it already is).
+  // Calls back with the version once an update has been downloaded (right away if it already is);
+  // returns an unsubscribe function.
   onUpdateReady(callback) {
-    ipcRenderer.on('update-ready', (_e, version) => callback(version))
+    const listener = (_e, version) => callback(version)
+    ipcRenderer.on('update-ready', listener)
     ipcRenderer.invoke('update-ready-version').then((version) => version && callback(version))
+    return () => ipcRenderer.removeListener('update-ready', listener)
   },
   installUpdate: () => ipcRenderer.send('install-update'),
+  version: () => ipcRenderer.invoke('app-version'),
+  checkForUpdates: () => ipcRenderer.invoke('check-updates'),
   // System-wide track hotkeys; returns an unsubscribe function.
   onTrackHotkey(callback) {
     const listener = (_e, action) => callback(action)

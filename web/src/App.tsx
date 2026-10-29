@@ -37,7 +37,7 @@ const EMPTY_NOTES = {
   never: 'Ты слушал всё, что есть в библиотеке',
 }
 
-const PAGE_TITLES: Partial<Record<string, string>> = { stats: 'Статистика', duplicates: 'Дубликаты', radio: 'Радио', settings: 'Настройки' }
+const PAGE_TITLES: Partial<Record<string, string>> = { stats: 'Статистика', duplicates: 'Дубликаты', radio: 'Радио' }
 
 export default function App() {
   const library = useLibrary()
@@ -244,15 +244,18 @@ export default function App() {
             />
           </header>
 
-          <ListToolbar
-            title={PAGE_TITLES[page] ?? viewName}
-            count={page === 'list' ? viewTracks.length : null}
-            fixing={fixing?.title ?? null}
-            onCancelFix={() => setFixing(null)}
-            downloadCount={toDownload.length}
-            onDownloadAll={() => actions.download(toDownload.map((t) => t.id))}
-            sort={page === 'list' && !fixedOrder ? { value: sort, mixed, onChange: changeSort } : undefined}
-          />
+          {/* Settings go without the bar: the menu already shows where you are. */}
+          {page !== 'settings' && (
+            <ListToolbar
+              title={PAGE_TITLES[page] ?? viewName}
+              count={page === 'list' ? viewTracks.length : null}
+              fixing={fixing?.title ?? null}
+              onCancelFix={() => setFixing(null)}
+              downloadCount={toDownload.length}
+              onDownloadAll={() => actions.download(toDownload.map((t) => t.id))}
+              sort={page === 'list' && !fixedOrder ? { value: sort, mixed, onChange: changeSort } : undefined}
+            />
+          )}
 
           {page === 'settings' && (
             <Settings client={clientSettings} onClientChange={setClientSettings} onLibraryChanged={loadTracks} />

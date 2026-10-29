@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { api, type ServerSettings } from '@/lib/api'
+import type { UpdateCheck } from '@/lib/desktop'
 
 export type ClientSettings = { confirmDelete: boolean; normalize: boolean; menuSide: 'left' | 'right' }
 
@@ -307,6 +308,72 @@ export function Settings({ client, onClientChange, onLibraryChanged }: Props) {
           ))}
         </div>
       </section>
+
+      <About />
     </div>
+  )
+}
+
+function updateHint(r: UpdateCheck) {
+  switch (r.status) {
+    case 'latest':
+      return 'Установлена последняя версия'
+    case 'downloading':
+      return `Найдена версия ${r.version}, скачиваем. Когда скачается, предложим перезапустить`
+    case 'ready':
+      return `Версия ${r.version} скачана и установится при перезапуске`
+    case 'error':
+      return `Не удалось проверить: ${r.message}`
+    case 'dev':
+      return 'Запущено без установки, обновлять нечего'
+  }
+}
+
+// Updates and the version, at the very bottom. Only the desktop app updates itself; in a browser
+// (development) the UI comes straight from the code.
+function About() {
+  const desktop = window.desktop
+  const [version, setVersion] = useState<string | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [result, setResult] = useState<UpdateCheck | null>(null)
+
+  useEffect(() => {
+    desktop?.version().then(setVersion, () => {})
+  }, [desktop])
+  // An update found by the check (or in the background) finishes downloading.
+  useEffect(() => desktop?.onUpdateReady((v) => setResult({ status: 'ready', version: v })), [desktop])
+
+  const check = async () => {
+    if (!desktop) return
+    setChecking(true)
+    try {
+      setResult(await desktop.checkForUpdates())
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-3">
+      {desktop && (
+        <div className="divide-y">
+          <Row title="Обновления" hint={result ? updateHint(result) : undefined}>
+            {result?.status === 'ready' ? (
+              <Button size="sm" onClick={desktop.installUpdate}>
+                Перезапустить
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" disabled={checking || result?.status === 'downloading'} onClick={check}>
+                {checking && <Loader2 className="animate-spin" />}
+                Проверить обновления
+              </Button>
+            )}
+          </Row>
+        </div>
+      )}
+      <p className="text-center text-xs text-muted-foreground">
+        Friendly Player {desktop ? (version ?? '') : '· в браузере'}
+      </p>
+    </section>
   )
 }

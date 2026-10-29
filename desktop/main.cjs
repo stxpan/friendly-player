@@ -84,8 +84,7 @@ function startServer() {
 function startUpdates() {
   if (!app.isPackaged) return
   const log = fs.createWriteStream(path.join(app.getPath('userData'), 'updater.log'), { flags: 'w' })
-  const write = (level) => (msg) => log.write(`${new Date().toISOString()} ${level} ${msg}
-`)
+  const write = (level) => (msg) => log.write(`${new Date().toISOString()} ${level} ${msg}\n`)
   autoUpdater.logger = { info: write('info'), warn: write('warn'), error: write('error'), debug: () => {} }
   autoUpdater.on('update-downloaded', ({ version }) => {
     updateReady = version
@@ -99,6 +98,21 @@ function startUpdates() {
 
 ipcMain.handle('update-ready-version', () => updateReady)
 ipcMain.on('install-update', () => autoUpdater.quitAndInstall())
+ipcMain.handle('app-version', () => app.getVersion())
+
+// "Check for updates" in Settings. A found update downloads on its own and ends in 'update-ready'.
+ipcMain.handle('check-updates', async () => {
+  if (!app.isPackaged) return { status: 'dev' }
+  if (updateReady) return { status: 'ready', version: updateReady }
+  try {
+    const result = await autoUpdater.checkForUpdates()
+    return result?.isUpdateAvailable
+      ? { status: 'downloading', version: result.updateInfo.version }
+      : { status: 'latest' }
+  } catch (e) {
+    return { status: 'error', message: e.message }
+  }
+})
 
 // Previous / next track from anywhere, also while another app is focused. Not Ctrl+←/→: those move
 // the cursor by words in every text field. If another app already holds a combination, it stays
