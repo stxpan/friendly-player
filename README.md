@@ -57,9 +57,11 @@
 ```sh
 git clone https://github.com/stxpan/friendly-player.git
 cd friendly-player
-pnpm install
+pnpm install --filter server --filter web
 pnpm dev
 ```
+
+`--filter` ставит только сервер и интерфейс — Electron (~100 МБ) для браузера не нужен.
 
 Если на Windows нет Python, `pnpm install` остановится на проверке Python. Она там не нужна (yt-dlp ставится
 готовым `.exe`) — пропусти её перед установкой:
@@ -73,8 +75,6 @@ set YOUTUBE_DL_SKIP_PYTHON_CHECK=1        # cmd
 `WEB_PORT` и `API_PORT` (для сервера — `PORT`).
 
 - Библиотека, база и скачанная музыка — в `server/data` (не попадает в git).
-- `pnpm install` скачивает и Electron для сборки приложения (~100 МБ). Если нужен только браузер:
-  `pnpm install --filter server --filter web`.
 - Плеер слушает только этот компьютер. Доступа с телефона или из сети пока нет, паролей тоже.
 
 ## Технологии
@@ -89,7 +89,10 @@ set YOUTUBE_DL_SKIP_PYTHON_CHECK=1        # cmd
 
 ## Сборка установщика
 
+Нужна полная установка, вместе с Electron, и Windows:
+
 ```sh
+pnpm install                            # без --filter: ещё и Electron со сборщиком
 node desktop/scripts/fetch-ffmpeg.mjs   # один раз: LGPL-сборка ffmpeg для приложения
 pnpm --filter desktop dist              # desktop/dist: установщик, latest.yml и .blockmap
 ```
