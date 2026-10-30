@@ -3,6 +3,10 @@ packages:
   - web
   - desktop
 allowBuilds:
+  # Not needed: onnxruntime-node ships its CPU binaries in the package (its script only adds GPU
+  # support on Linux); electron-winstaller makes Squirrel installers, and we build NSIS.
+  onnxruntime-node: false
+  electron-winstaller: false
   electron: true
   esbuild: true
   youtube-dl-exec: true
